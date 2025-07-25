@@ -15,8 +15,6 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { pixiePalData } from '../services/PixiePalDataService';
 import { LinearGradient } from 'expo-linear-gradient';
-import VoiceInput from '../components/VoiceInput';
-import { VoiceService } from '../services/VoiceService';
 
 // Types
 interface Message {
@@ -40,7 +38,6 @@ interface Attraction {
   hasLightningLane?: boolean;
   park: string;
   land?: string;
-  type?: string; // Added to distinguish ride types
 }
 
 interface Entertainment {
@@ -75,6 +72,7 @@ const PARK_NAMES: Record<ExtendedParkId, string> = {
   resorts: 'Resorts'
 };
 
+// PARK ABBREVIATION FUNCTION
 const getParkAbbreviation = (park: ExtendedParkId): string => {
   const abbreviations: Record<ExtendedParkId, string> = {
     magicKingdom: 'MK',
@@ -96,7 +94,6 @@ const PARKS: Array<{id: ExtendedParkId; name: string; icon: string; color: strin
   { id: 'resorts', name: 'Resorts', icon: '🏨', color: '#9B59B6' },
 ];
 
-// FIXED: Proper attraction-to-park mapping with REAL RIDES ONLY
 const ATTRACTION_TO_PARK: Record<string, ParkId> = {
   'space mountain': 'magicKingdom',
   'pirates of the caribbean': 'magicKingdom',
@@ -107,9 +104,6 @@ const ATTRACTION_TO_PARK: Record<string, ParkId> = {
   'jungle cruise': 'magicKingdom',
   'splash mountain': 'magicKingdom',
   'tron lightcycle run': 'magicKingdom',
-  'it\'s a small world': 'magicKingdom',
-  'peter pan\'s flight': 'magicKingdom',
-  'buzz lightyear': 'magicKingdom',
   'guardians of the galaxy': 'epcot',
   'test track': 'epcot',
   'spaceship earth': 'epcot',
@@ -129,38 +123,8 @@ const ATTRACTION_TO_PARK: Record<string, ParkId> = {
   'navi river journey': 'animalKingdom'
 };
 
-// FIXED: Define what should NOT be considered a ride
-const NOT_RIDES = [
-  'tiki room', 'enchanted tiki room', 'swiss family treehouse', 'swiss family robinson',
-  'tom sawyer island', 'hall of presidents', 'carousel of progress',
-  'peoplemover', 'tomorrowland transit authority', 'walt disney world railroad',
-  'liberty belle riverboat', 'country bear jamboree', 'mickey mouse meet',
-  'princess fairytale hall', 'meet and greet', 'character meet'
-];
-
 const { width: screenWidth } = Dimensions.get('window');
 
-// Helper function to determine if something is actually a ride
-const isActualRide = (attractionName: string): boolean => {
-  const lowerName = attractionName.toLowerCase();
-  return !NOT_RIDES.some(notRide => lowerName.includes(notRide));
-};
-
-// Helper function to determine if something is a character meet
-const isCharacterMeet = (attractionName: string): boolean => {
-  const lowerName = attractionName.toLowerCase();
-  return lowerName.includes('meet') || lowerName.includes('character') || 
-         lowerName.includes('mickey mouse') || lowerName.includes('princess');
-};
-
-// Helper function to determine if something is a show
-const isShow = (attractionName: string): boolean => {
-  const lowerName = attractionName.toLowerCase();
-  return lowerName.includes('tiki room') || lowerName.includes('hall of presidents') ||
-         lowerName.includes('country bear') || lowerName.includes('carousel of progress');
-};
-
-// DISNEY UX HELPER FUNCTIONS
 const formatTime = (militaryTime: string): string => {
   if (!militaryTime || !militaryTime.includes(':')) return militaryTime;
   
@@ -184,75 +148,11 @@ const formatDate = (dateString: string): string => {
   return dateString;
 };
 
-// ENHANCED DISNEY-STYLE WAIT TIME FORMATTING
-const getWaitTimeBadgeColor = (waitTime: number): string => {
-  if (waitTime <= 15) return '#27AE60'; // Green - Great
-  if (waitTime <= 30) return '#F39C12'; // Orange - Good  
-  if (waitTime <= 60) return '#E67E22'; // Dark Orange - Okay
-  return '#E74C3C'; // Red - Long
-};
-
-const formatWaitTimeBadge = (waitTime: number, hasLightningLane: boolean = false): string => {
-  const badge = `⏰ ${waitTime} min`;
-  const llBadge = hasLightningLane ? ' ⚡' : '';
-  return `${badge}${llBadge}`;
-};
-
-// ENHANCED DISNEY RESPONSE FORMATTING
-const formatDisneyResponse = (
-  title: string, 
-  content: string, 
-  actionCue?: string
-): string => {
-  let response = `**${title}**\n\n${content}`;
-  
-  if (actionCue) {
-    response += `\n\n${actionCue} ✨`;
-  }
-  
-  return response;
-};
-
-// IMPROVED ANALYZE QUERY FUNCTION
 const analyzeQuery = (input: string) => {
   const lower = input.toLowerCase();
   
-  // Check for specific attraction names first
-  const hasAttractionName = Object.keys(ATTRACTION_TO_PARK).some(ride => 
-    lower.includes(ride.toLowerCase())
-  );
-  
   return {
-    isAttractionWaitQuery: (
-      (lower.includes('wait') && (hasAttractionName || lower.includes('ride') || lower.includes('attraction'))) ||
-      lower.includes('shortest wait') || lower.includes('longest wait') || 
-      lower.includes('fastest ride') || lower.includes('ride times')
-    ),
-    
-    isShowWaitQuery: (
-      (lower.includes('wait') && (lower.includes('show') || lower.includes('parade') || lower.includes('firework'))) ||
-      lower.includes('next show') || lower.includes('when is') || lower.includes('show times') ||
-      lower.includes('how long until')
-    ),
-    
-    isCharacterWaitQuery: (
-      (lower.includes('wait') && (lower.includes('character') || lower.includes('meet') || lower.includes('mickey') || lower.includes('princess'))) ||
-      lower.includes('when can i meet') || lower.includes('character times') ||
-      lower.includes('meet times')
-    ),
-    
-    isGeneralWaitQuery: (
-      lower.includes('wait times') && !hasAttractionName && 
-      !lower.includes('show') && !lower.includes('character') && !lower.includes('meet')
-    ),
-    
-    isParkHoursQuery: (
-      lower.includes('park hours') || lower.includes('operating hours') ||
-      (lower.includes('open') && lower.includes('close')) ||
-      lower.includes('what time does') && (lower.includes('open') || lower.includes('close'))
-    ),
-    
-    isTimeQuery: lower.includes('time') || lower.includes('hours') || lower.includes('when'),
+    isTimeQuery: lower.includes('time') || lower.includes('hours') || lower.includes('open') || lower.includes('close'),
     isSpecificLocationTime: lower.includes('fairytale hall') || lower.includes('princess fairytale hall') || lower.includes('fairy hall') || lower.includes('theater') || lower.includes('sideshow'),
     isCharacterQuery: (lower.includes('character') || lower.includes('meet') || lower.includes('mickey') || 
                       (lower.includes('princess') && !lower.includes('fairytale') && !lower.includes('fairy hall') && !lower.includes('princess fairytale hall'))),
@@ -261,7 +161,7 @@ const analyzeQuery = (input: string) => {
     isFireworksQuery: lower.includes('firework'),
     isShowQuery: (lower.includes('show') && !lower.includes('firework') && !lower.includes('parade')),
     isParadeQuery: lower.includes('parade'),
-    isAttractionQuery: lower.includes('ride') || lower.includes('attraction') || lower.includes('wait') || hasAttractionName,
+    isAttractionQuery: lower.includes('ride') || lower.includes('attraction') || lower.includes('wait'),
     isCrossParks: lower.includes('flight of passage') || lower.includes('rise of the resistance') || lower.includes('frozen ever after'),
     targetPark: (lower.includes('mk') || lower.includes('magic kingdom')) ? ('magicKingdom' as ExtendedParkId) :
                 (lower.includes('epcot') || lower.includes('ep')) ? ('epcot' as ExtendedParkId) :
@@ -283,95 +183,8 @@ export default function PixiePalChat() {
   const [conversationContext, setConversationContext] = useState<string[]>([]);
   const [keyboardVisible, setKeyboardVisible] = useState(false);
   const [parkSelectorVisible, setParkSelectorVisible] = useState(true);
-  const voiceService = VoiceService.getInstance();
 
-  // FIXED: Enhanced bold text formatter with proper React.ReactNode return type
-  const formatBoldText = (text: string): React.ReactNode[] => {
-    const parts = text.split(/(\*\*.*?\*\*)/g);
-    return parts.map((part, index) => {
-      if (part.startsWith('**') && part.endsWith('**')) {
-        const boldText = part.slice(2, -2);
-        return (
-          <Text key={index} style={styles.boldText}>
-            {boldText}
-          </Text>
-        );
-      }
-      return part;
-    });
-  };
-
-  // Handle voice input - transcribe and process like text input
-  const handleVoiceResult = async (audioUri: string) => {
-    try {
-      console.log('🎤 Processing voice input...');
-      setIsLoading(true);
-      
-      // Use voice service to transcribe audio
-      const transcription = await voiceService.transcribeAudio(audioUri);
-      console.log('✅ Voice transcription:', transcription);
-      
-      // Process as if user typed the message
-      await processVoiceMessage(transcription);
-    } catch (error) {
-      console.error('❌ Voice processing error:', error);
-      
-      const errorMessage: Message = {
-        id: `error_${Date.now()}_${Math.random()}`,
-        text: "Oops! I'm still polishing my magic mirror for voice. ✨ Try typing your question and I'll help right away!",
-        isUser: false,
-        timestamp: new Date(),
-        showFeedback: true
-      };
-      
-      setMessages(prev => [...prev, errorMessage]);
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  // Process voice message like a regular text message
-  const processVoiceMessage = async (transcription: string) => {
-    const userMessage: Message = {
-      id: `user_${Date.now()}_${Math.random()}`,
-      text: transcription,
-      isUser: true,
-      timestamp: new Date()
-    };
-
-    setMessages(prev => [...prev, userMessage]);
-
-    try {
-      const response = await processUserInput(transcription);
-      
-      const aiMessage: Message = {
-        id: `ai_${Date.now()}_${Math.random()}`,
-        text: response,
-        isUser: false,
-        timestamp: new Date(),
-        showFeedback: true
-      };
-
-      setMessages(prev => [...prev, aiMessage]);
-    } catch (error) {
-      console.log('❌ Error processing voice message:', error);
-      
-      const errorMessage: Message = {
-        id: `error_${Date.now()}_${Math.random()}`,
-        text: "Something magical went wrong! ✨ Try asking about wait times or shows!",
-        isUser: false,
-        timestamp: new Date(),
-        showFeedback: true
-      };
-      
-      setMessages(prev => [...prev, errorMessage]);
-    }
-  };
-
-  const formatTimeDisplay = (date: Date) => {
-    return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-  };
-
+  // Keyboard visibility detection
   useEffect(() => {
     const keyboardDidShowListener = Keyboard.addListener('keyboardDidShow', () => {
       setKeyboardVisible(true);
@@ -400,7 +213,7 @@ export default function PixiePalChat() {
   const addWelcomeMessage = () => {
     const welcomeMessage: Message = {
       id: `welcome_${Date.now()}`,
-      text: "🧚‍♀️ **Hello there! I'm your Pixie Pal!** ✨\n\nI'm here to help make your Disney day magical!\n\n**Ask me about:**\n🎢 Wait times for any ride\n🎭 Show schedules & times\n🧚‍♀️ Character meet locations\n🕐 Park hours\n\nJust ask me anything! Ready for some Disney magic?",
+      text: "🏰 Welcome to the magic! I'm Pixie Pal!\n\n✨ I know EVERYTHING about Disney World:\n🎢 Live wait times\n🎭 Show schedules  \n🍽️ Dining reservations\n⚡ Lightning Lane tips\n\nReady to make some Disney magic? What's your first question! 🌟",
       isUser: false,
       timestamp: new Date(),
       showFeedback: true
@@ -441,7 +254,7 @@ export default function PixiePalChat() {
     if (message.feedback) {
       return (
         <View style={styles.feedbackCompleted}>
-          <Text style={styles.feedbackCompletedText}>Thanks for the magic! 💫</Text>
+          <Text style={styles.feedbackCompletedText}>Thanks! 💫</Text>
         </View>
       );
     }
@@ -488,71 +301,67 @@ export default function PixiePalChat() {
           
           let entertainmentData = null;
           try {
-            console.log(`🎭 Fetching entertainment for ${park.name}...`);
+            console.log(`🎭 Fetching ENHANCED entertainment for ${park.name} directly from proxy...`);
             const response = await fetch(`https://disney-data-proxy.onrender.com/api/disney/entertainment/${park.name}`);
             if (response.ok) {
               entertainmentData = await response.json();
-              console.log(`🎭 Got ${entertainmentData?.entertainment?.length || 0} entertainment items`);
+              console.log(`🎭 Enhanced entertainment data received for ${park.name}:`, entertainmentData?.entertainment?.length || 0, 'items');
             }
           } catch (entertainmentError) {
-            console.log(`⚠️ Entertainment data not available for ${park.name}`);
+            console.log(`⚠️ Entertainment data not available for ${park.name}:`, entertainmentError);
           }
           
           let characterMeetData = null;
           try {
-            console.log(`🧚‍♀️ Fetching character meets for ${park.name}...`);
+            console.log(`🧚‍♀️ Fetching character meets for ${park.name} directly from proxy...`);
             const characterResponse = await fetch(`https://disney-data-proxy.onrender.com/api/disney/character-meets/${park.name}`);
             if (characterResponse.ok) {
               characterMeetData = await characterResponse.json();
             }
           } catch (characterError) {
-            console.log(`⚠️ Character meet data not available for ${park.name}`);
+            console.log(`⚠️ Character meet data not available for ${park.name}:`, characterError);
           }
           
           let parkHoursData = null;
           try {
-            console.log(`🕐 Fetching park hours for ${park.name}...`);
+            console.log(`🕐 Fetching park hours for ${park.name} directly from proxy...`);
             const hoursResponse = await fetch(`https://disney-data-proxy.onrender.com/api/disney/park-hours/${park.name}`);
             if (hoursResponse.ok) {
               parkHoursData = await hoursResponse.json();
             }
           } catch (hoursError) {
-            console.log(`⚠️ Park hours not available for ${park.name}`);
+            console.log(`⚠️ Park hours not available for ${park.name}:`, hoursError);
           }
           
           if (data && data.attractions && data.attractions.length > 0) {
             console.log(`✅ Got ${data.attractions.length} attractions from ${park.name}`);
-            
-            // FIXED: Properly categorize attractions vs shows vs character meets
-            const parkAttractions = data.attractions
-              .filter((attraction: any) => isActualRide(attraction.name)) // Only real rides
-              .map((attraction: any) => ({
-                id: `${park.name}-${attraction.id}`,
-                name: attraction.name,
-                waitTime: attraction.waitTime || 0,
-                isOpen: attraction.isOpen || true,
-                hasLightningLane: attraction.fastPassAvailable || attraction.hasLightningLane || false,
-                park: park.id,
-                land: attraction.land,
-                type: 'ride'
-              }));
-            
+            const parkAttractions = data.attractions.map((attraction: any) => ({
+              id: `${park.name}-${attraction.id}`,
+              name: attraction.name,
+              waitTime: attraction.waitTime || 0,
+              isOpen: attraction.isOpen || true,
+              hasLightningLane: attraction.fastPassAvailable || attraction.hasLightningLane || false,
+              park: park.id,
+              land: attraction.land
+            }));
             allData.push(...parkAttractions);
           }
 
           if (entertainmentData && entertainmentData.entertainment) {
-            // FIXED: Filter out character meets from entertainment
-            const actualEntertainment = entertainmentData.entertainment.filter((item: any) => 
-              !isCharacterMeet(item.name)
-            );
+            console.log(`🎭 Processing ${entertainmentData.entertainment.length} entertainment items from ${park.name}`);
+            
+            const showTypes = entertainmentData.entertainment.map((show: any) => show.type).filter(Boolean);
+            const uniqueTypes = [...new Set(showTypes)];
+            console.log(`🎭 Entertainment types for ${park.name}:`, uniqueTypes);
             
             allEntertainment.push({
               park: park.id,
-              entertainment: actualEntertainment
+              entertainment: entertainmentData.entertainment
             });
           }
 
           if (characterMeetData && characterMeetData.characterMeets) {
+            console.log(`🧚‍♀️ Got ${characterMeetData.characterMeets.length} character meets from ${park.name}`);
             const parkCharacterMeets = characterMeetData.characterMeets.map((meet: any) => ({
               ...meet,
               park: park.id
@@ -561,6 +370,7 @@ export default function PixiePalChat() {
           }
 
           if (parkHoursData) {
+            console.log(`🕐 Got park hours for ${park.name}`);
             allParkHours.push({
               park: park.id,
               hours: parkHoursData
@@ -578,7 +388,18 @@ export default function PixiePalChat() {
         setAllParkHours(allParkHours);
         setAllCharacterMeets(allCharacterMeets);
         
-        console.log(`✅ LOADED DISNEY DATA: ${allData.length} rides, ${allEntertainment.length} entertainment, ${allCharacterMeets.length} character meets`);
+        console.log(`✅ LOADED ENHANCED DISNEY DATA:`);
+        console.log(`📊 TOTAL: ${allData.length} attractions`);
+        console.log(`🏰 Magic Kingdom: ${allData.filter(a => a.park === 'magicKingdom').length} attractions`);
+        console.log(`🌐 EPCOT: ${allData.filter(a => a.park === 'epcot').length} attractions`);
+        console.log(`🎬 Hollywood Studios: ${allData.filter(a => a.park === 'hollywoodStudios').length} attractions`);
+        console.log(`🌳 Animal Kingdom: ${allData.filter(a => a.park === 'animalKingdom').length} attractions`);
+        console.log(`🎭 ENHANCED Entertainment: ${allEntertainment.length} parks with shows`);
+        allEntertainment.forEach(park => {
+          console.log(`  - ${park.park}: ${park.entertainment.length} entertainment items`);
+        });
+        console.log(`🧚‍♀️ Character Meets: ${allCharacterMeets.length} total character meets`);
+        console.log(`🕐 Park Hours: ${allParkHours.length} parks with hours`);
       }
     } catch (error) {
       console.log('❌ Error loading attractions:', error);
@@ -587,79 +408,93 @@ export default function PixiePalChat() {
     }
   };
 
-  // ENHANCED PATTERN MATCHING with proper categorization
   const tryPatternMatch = (input: string, contextPark?: ExtendedParkId): string | null => {
     const lowerInput = input.toLowerCase();
     const effectivePark = contextPark || currentPark;
     const analysis = analyzeQuery(input);
 
-    // Handle general "wait times" query with PROPER categorization
-    if (analysis.isGeneralWaitQuery) {
-      const currentParkAttractions = allAttractions.filter(a => a.park === effectivePark);
-      const currentParkEntertainment = allEntertainment.find(e => e.park === effectivePark)?.entertainment || [];
-      const currentParkCharacters = allCharacterMeets.filter(meet => meet.park === effectivePark);
-      
-      let content = '';
-      
-      // FIXED: Only show ACTUAL RIDES with shortest waits
-      if (currentParkAttractions.length > 0) {
-        const shortestWaits = currentParkAttractions
-          .filter(a => a.isOpen && a.type === 'ride') // Only actual rides
-          .sort((a, b) => a.waitTime - b.waitTime)
-          .slice(0, 3);
-        
-        if (shortestWaits.length > 0) {
-          content += `**🎢 Shortest Ride Waits**\n\n`;
-          shortestWaits.forEach((attraction, index) => {
-            const badge = formatWaitTimeBadge(attraction.waitTime, attraction.hasLightningLane);
-            content += `**${index + 1}. ${attraction.name}**\n${badge}\n\n`;
-          });
-        }
-      }
-      
-      // FIXED: Only show ACTUAL SHOWS (not character meets)
-      if (currentParkEntertainment.length > 0) {
-        const actualShows = currentParkEntertainment.filter((show: any) => 
-          !isCharacterMeet(show.name)
+    for (const [rideName, parkId] of Object.entries(ATTRACTION_TO_PARK)) {
+      if (lowerInput.includes(rideName)) {
+        const attraction = allAttractions.find(a => 
+          a.park === parkId && 
+          a.name.toLowerCase().includes(rideName)
         );
         
-        if (actualShows.length > 0) {
-          content += `**🎭 Shows Starting Soon**\n\n`;
-          actualShows.slice(0, 2).forEach((show: any) => {
-            const times = show.times?.join(', ') || 'Check times';
-            content += `**${show.name}**\n🕐 ${times}\n\n`;
-          });
+        if (attraction) {
+          if (parkId !== currentPark) {
+            setCurrentPark(parkId);
+            console.log(`🔄 Auto-switched to ${PARK_NAMES[parkId]} for ${rideName}`);
+          }
+          
+          if (lowerInput.includes('wait') || lowerInput.includes('how long') || lowerInput.includes('open') || !lowerInput.includes('where')) {
+            const lightningLane = attraction.hasLightningLane ? ' ⚡ Lightning Lane available!' : '';
+            return `🎢 **${attraction.name}** currently has a **${attraction.waitTime} minute wait**!${lightningLane}\n\n🏰 Located at ${PARK_NAMES[parkId]} in ${attraction.land || 'the park'}! ${parkId !== effectivePark ? '(Switched parks for you!) ' : ''}✨`;
+          } else {
+            return `🎢 **${attraction.name}** is located at ${PARK_NAMES[parkId]} in ${attraction.land || 'the park'}! ${parkId !== effectivePark ? '(Switched parks for you!) ' : ''}✨`;
+          }
+        } else {
+          if (parkId !== effectivePark) {
+            setCurrentPark(parkId);
+            console.log(`🔄 Auto-switched to ${PARK_NAMES[parkId]} for ${rideName}`);
+            return `🎢 ${rideName.split(' ').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ')} is located at ${PARK_NAMES[parkId]}! I've switched you to the correct park. ✨\n\nTry asking about it again for current wait times!`;
+          }
         }
       }
-      
-      // FIXED: Only show ACTUAL CHARACTER MEETS (no duplicates)
-      if (currentParkCharacters.length > 0) {
-        const uniqueCharacters = currentParkCharacters
-          .filter((meet, index, self) => 
-            index === self.findIndex(m => 
-              (m.character || m.characters?.join(',')) === (meet.character || meet.characters?.join(','))
-            )
-          )
-          .slice(0, 3);
-        
-        if (uniqueCharacters.length > 0) {
-          content += `**🧚‍♀️ Characters Available**\n\n`;
-          uniqueCharacters.forEach(meet => {
-            const characters = meet.characters?.join(', ') || meet.character || 'Character';
-            const times = meet.times?.join(', ') || meet.time || 'Check times';
-            content += `**${characters}**\n📍 ${meet.location}\n🕐 ${times}\n\n`;
-          });
-        }
-      }
-      
-      return formatDisneyResponse(
-        `${PARK_NAMES[effectivePark]} Wait Times`,
-        content.trim() || "Getting the latest wait times ready for you!",
-        "Want alerts when lines drop? Just ask"
-      );
     }
-    
-    // Other pattern matching continues...
+
+    if (effectivePark === 'disneySprings') {
+      if (analysis.isTimeQuery) {
+        return `🕐 **Disney Springs Hours:**\n\n⏰ **Typical:** 10:00 AM - 11:00 PM\n📱 **Status:** Open daily\n\n✨ Individual shop and restaurant hours may vary. Check the Disney World app for specific store hours!`;
+      }
+      return `🛍️ **Disney Springs** is Disney's shopping and dining district! I don't have live data for Springs yet, but it's open daily from 10 AM to 11 PM. Check the Disney World app for specific store and restaurant information! ✨`;
+    }
+
+    if (effectivePark === 'resorts') {
+      return `🏨 **Disney Resort Hotels** are available 24/7 for guests! I don't have specific resort data yet, but you can check the Disney World app or call your resort directly for amenities, dining reservations, and transportation schedules! ✨`;
+    }
+
+    if (analysis.isTimeQuery && !analysis.isSpecificLocationTime) {
+      const parkName = PARK_NAMES[effectivePark];
+      const parkHoursData = allParkHours.find(p => p.park === effectivePark);
+      
+      if (parkHoursData && parkHoursData.hours && parkHoursData.hours.hours && parkHoursData.hours.hours.length > 0) {
+        const todayHours = parkHoursData.hours.hours[0];
+        let response = `🕐 **${parkName} Hours:**\n\n`;
+        
+        if (todayHours.openingTime && todayHours.closingTime) {
+          const openTime = formatTime(todayHours.openingTime);
+          const closeTime = formatTime(todayHours.closingTime);
+          response += `📅 **Today:** ${openTime} - ${closeTime}\n`;
+        }
+        
+        if (todayHours.date) {
+          response += `📆 **Date:** ${formatDate(todayHours.date)}\n`;
+        }
+        
+        if (parkHoursData.hours.hours.length > 1) {
+          const tomorrowHours = parkHoursData.hours.hours[1];
+          const tomorrowOpen = formatTime(tomorrowHours.openingTime);
+          const tomorrowClose = formatTime(tomorrowHours.closingTime);
+          response += `📅 **Tomorrow:** ${tomorrowOpen} - ${tomorrowClose}\n`;
+        }
+        
+        response += `\n✨ These are today's official operating hours! Have a magical day! 🏰`;
+        return response;
+      } else {
+        const generalHours: Record<ExtendedParkId, string> = {
+          magicKingdom: "9:00 AM - 10:00 PM",
+          epcot: "9:00 AM - 9:00 PM", 
+          hollywoodStudios: "9:00 AM - 9:00 PM",
+          animalKingdom: "8:00 AM - 8:00 PM",
+          disneySprings: "10:00 AM - 11:00 PM",
+          resorts: "24/7 for guests"
+        };
+
+        const hours = generalHours[effectivePark];
+        return `🕐 **${parkName} Hours:**\n\n⏰ **Typical:** ${hours}\n\n✨ Check the Disney World app for today's exact hours!`;
+      }
+    }
+
     return null;
   };
 
@@ -677,28 +512,20 @@ export default function PixiePalChat() {
 
     const patternResult = tryPatternMatch(input, targetPark);
     if (patternResult) {
-      console.log('🟢 Using pattern matching (Disney formatted)');
+      console.log('🟢 Using pattern matching (free)');
       return patternResult;
     }
 
     if (targetPark === 'disneySprings' || targetPark === 'resorts') {
       if (targetPark === 'disneySprings') {
-        return formatDisneyResponse(
-          "🛍️ Disney Springs",
-          "Disney's shopping and dining district!\n\n📍 **What's there:** World-class shopping, amazing restaurants, live entertainment\n🕐 **Hours:** 10:00 AM - 11:00 PM daily\n🚗 **Parking:** Free parking available",
-          "Ask about specific stores or dining"
-        );
+        return `🛍️ **Disney Springs** is Disney's shopping and dining district!\n\n📍 **What's there:** World-class shopping, amazing restaurants, live entertainment\n🕐 **Hours:** 10:00 AM - 11:00 PM daily\n🚗 **Parking:** Free parking available\n\n✨ Check the Disney World app for specific store and restaurant hours!`;
       } else {
-        return formatDisneyResponse(
-          "🏨 Disney Resort Hotels",
-          "Magical accommodations await!\n\n🏰 **Deluxe:** Grand Floridian, Polynesian, Contemporary\n🌟 **Moderate:** Port Orleans, Caribbean Beach, Coronado Springs\n💰 **Value:** All-Star resorts, Pop Century, Art of Animation",
-          "Each resort has unique theming and transportation"
-        );
+        return `🏨 **Disney Resort Hotels** offer magical accommodations!\n\n🏰 **Deluxe Resorts:** Grand Floridian, Polynesian, Contemporary\n🌟 **Moderate Resorts:** Port Orleans, Caribbean Beach, Coronado Springs\n💰 **Value Resorts:** All-Star Movies/Music/Sports, Pop Century, Art of Animation\n\n✨ Each resort has unique theming, dining, and transportation to the parks!`;
       }
     }
 
     try {
-      console.log('🤖 Using enhanced AI with Disney formatting');
+      console.log('🤖 Using TRUE AI with OpenAI and enhanced real data context');
       
       const currentParkAttractions = allAttractions.filter(a => a.park === targetPark);
       const currentParkEntertainment = allEntertainment.find(e => e.park === targetPark)?.entertainment || [];
@@ -725,49 +552,31 @@ export default function PixiePalChat() {
           }).join('\n')
         : 'No character meet data available';
 
-      // ENHANCED AI PROMPT
-      const aiPrompt = `You are Pixie Pal, the warmest Disney assistant! 🏰
+      const aiPrompt = `You are Pixie Pal, a Disney assistant! 🏰
 
-CURRENT PARK: ${PARK_NAMES[targetPark]}
-USER QUESTION: "${input}"
+CONTEXT:
+- Current Park: ${PARK_NAMES[targetPark]}
+- User Question: "${input}"
 
-🎢 LIVE ATTRACTION WAIT TIMES:
+LIVE ${PARK_NAMES[targetPark]} DATA:
+
+ATTRACTIONS & WAIT TIMES:
 ${attractionsContext}
 
-🎭 CURRENT ENTERTAINMENT & SHOWS:
+ENHANCED ENTERTAINMENT & SHOWS:
 ${entertainmentContext}
 
-🧚‍♀️ CHARACTER MEET & GREETS:
+CHARACTER MEETS:
 ${characterContext}
 
-📋 DISNEY UX RESPONSE RULES:
+RESPONSE RULES:
+1. Be specific and direct - don't ask for clarification
+2. Use exact location names from the data
+3. Include times when available
+4. Don't greet (we're already talking)
+5. Focus on exactly what they asked for
 
-**Structure Every Response:**
-1. **Header** (bold + icon, NO timestamp)
-2. **Well-spaced content** with clear visual breaks
-3. **Action cue** (one friendly sentence ending with ✨)
-
-**Visual Formatting:**
-• Use **text** for bold (processed by formatBoldText)
-• Add blank lines between items for spacing
-• Use ✨ **🎢 Section Name** ✨ for section headers (NO ugly lines!)
-• Format wait times as "⏰ 25 min ⚡"
-• Use 📍 for locations, 🕐 for times
-• Maximum 5 items per section
-
-**Content Rules:**
-• Welcoming & optimistic tone
-• Max 2 emojis per response  
-• Keep under 120 words
-• Use "Great news!" for short waits
-• Clear visual hierarchy
-
-**Response Examples:**
-"**Space Mountain**\n\n⏰ 25 min ⚡\n\n📍 Tomorrowland, Magic Kingdom"
-
-"**Festival of Fantasy Parade**\n\n🕐 3:00 PM, 5:30 PM\n\n📍 Main Street USA"
-
-Answer with clear sections and visual breaks! ✨`;
+Answer the user's question using this enhanced Disney data!`;
 
       const response = await fetch('https://api.openai.com/v1/chat/completions', {
         method: 'POST',
@@ -783,8 +592,8 @@ Answer with clear sections and visual breaks! ✨`;
               content: aiPrompt
             }
           ],
-          max_tokens: 400,
-          temperature: 0.2
+          max_tokens: 800,
+          temperature: 0.1
         })
       });
 
@@ -793,72 +602,53 @@ Answer with clear sections and visual breaks! ✨`;
       }
 
       const aiData = await response.json();
-      const aiResponse = aiData.choices[0]?.message?.content || 'Something magical happened! ✨ Try asking about wait times or shows!';
+      const aiResponse = aiData.choices[0]?.message?.content || 'I had a magical moment processing that! ✨';
 
-      console.log('✅ Enhanced Disney AI response received');
+      console.log('✅ Enhanced OpenAI response received');
       return aiResponse;
       
     } catch (error) {
-      console.log('❌ AI error, using enhanced fallback:', error);
+      console.log('❌ OpenAI error, falling back to enhanced smart responses:', error);
       
       const currentParkAttractions = allAttractions.filter(a => a.park === targetPark);
       const currentParkCharacters = allCharacterMeets.filter(meet => meet.park === targetPark);
       const currentParkEntertainment = allEntertainment.find(e => e.park === targetPark)?.entertainment || [];
       
       if (analysis.isEntertainmentQuery && currentParkEntertainment.length > 0) {
-        let content = '';
-        const entertainmentShows = currentParkEntertainment.slice(0, 4);
+        let response = `🎭 **Entertainment at ${PARK_NAMES[targetPark]}:**\n\n`;
+        const entertainmentShows = currentParkEntertainment.filter((show: any) => 
+          !show.type?.includes('character-meet')
+        ).slice(0, 5);
+        
         entertainmentShows.forEach((show: any) => {
           const times = show.times?.join(', ') || 'Check times';
-          content += `**${show.name}**\n🕐 ${times}\n\n`;
+          response += `🎪 **${show.name}** - ${times}\n`;
         });
-        
-        return formatDisneyResponse(
-          `🎭 ${PARK_NAMES[targetPark]} Entertainment`,
-          content,
-          "Check the Disney app for any last-minute changes"
-        );
+        return response + `\n✨ Enhanced entertainment data! Check Disney app for updates! 🎭`;
       }
       
       if (analysis.isCharacterQuery && currentParkCharacters.length > 0) {
-        let content = '';
-        currentParkCharacters.slice(0, 3).forEach((meet) => {
+        let response = `🧚‍♀️ **Character Meets at ${PARK_NAMES[targetPark]}:**\n\n`;
+        currentParkCharacters.slice(0, 3).forEach(meet => {
           const characters = meet.characters?.join(', ') || meet.character || 'Character';
           const times = meet.times?.join(', ') || meet.time || 'Check times';
-          content += `**${characters}**\n📍 ${meet.location}\n🕐 ${times}\n\n`;
+          response += `✨ **${characters}** at ${meet.location} (${times})\n`;
         });
-        
-        return formatDisneyResponse(
-          `🧚‍♀️ ${PARK_NAMES[targetPark]} Character Meets`,
-          content,
-          "Arrive early for the best meet experience"
-        );
+        return response + `\n💫 Character times can change - arrive early! ✨`;
       }
       
       if (analysis.isAttractionQuery && currentParkAttractions.length > 0) {
-        let content = '';
-        const topAttractions = currentParkAttractions.slice(0, 5);
-        topAttractions.forEach((a) => {
-          const badge = formatWaitTimeBadge(a.waitTime, a.hasLightningLane);
-          content += `**${a.name}**\n${badge}\n\n`;
-        });
-        
-        return formatDisneyResponse(
-          `🏰 ${PARK_NAMES[targetPark]} Attractions`,
-          content,
-          "Live wait times updated every few minutes"
-        );
+        const list = currentParkAttractions.slice(0, 5).map(a => 
+          `🎢 ${a.name} - ${a.waitTime} min${a.hasLightningLane ? ' ⚡' : ''}`
+        ).join('\n');
+        return `🏰 **${PARK_NAMES[targetPark]} Top Attractions:**\n\n${list}\n\n✨ Live wait times updated regularly!`;
       }
       
-      return formatDisneyResponse(
-        "✨ Magic in Progress",
-        `I have data for ${currentParkAttractions.length} attractions, ${currentParkEntertainment.length} shows, and ${currentParkCharacters.length} character meets at ${PARK_NAMES[targetPark]}!`,
-        'Try asking "show me rides" or "character meets"'
-      );
+      return `✨ I'm having a magical moment with the AI! But I have enhanced data including ${currentParkAttractions.length} attractions, ${currentParkEntertainment.length} entertainment shows, and ${currentParkCharacters.length} character meets at ${PARK_NAMES[targetPark]}. Try asking "show me all rides", "what shows are happening", or "character meets"! 🏰`;
     }
   };
 
-  const sendMessage = async (messageText?: string): Promise<void> => {
+  const sendMessage = async (messageText?: string) => {
     const textToSend = messageText || inputText.trim();
     
     if (!textToSend) {
@@ -901,7 +691,7 @@ Answer with clear sections and visual breaks! ✨`;
       
       const errorMessage: Message = {
         id: `error_${Date.now()}_${Math.random()}`,
-        text: "Oops! Something magical went wrong. ✨ Try asking about wait times or shows!",
+        text: "Something magical went wrong! ✨ Try asking me about wait times or park hours!",
         isUser: false,
         timestamp: new Date(),
         showFeedback: true
@@ -921,13 +711,33 @@ Answer with clear sections and visual breaks! ✨`;
     }
   }, [messages]);
 
+  // Bold text formatter for React Native
+  const formatBoldText = (text: string) => {
+    const parts = text.split(/(\*\*.*?\*\*)/g);
+    return parts.map((part, index) => {
+      if (part.startsWith('**') && part.endsWith('**')) {
+        const boldText = part.slice(2, -2);
+        return (
+          <Text key={index} style={{ fontWeight: 'bold' }}>
+            {boldText}
+          </Text>
+        );
+      }
+      return part;
+    });
+  };
+
+  const formatTimeDisplay = (date: Date) => {
+    return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  };
+
   return (
     <SafeAreaView style={styles.safeContainer}>
       <KeyboardAvoidingView 
         style={styles.container} 
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
       >
-        {/* ENHANCED MAGICAL HEADER */}
+        {/* SMART COLLAPSIBLE HEADER WITH GRADIENT */}
         <TouchableOpacity style={styles.magicalHeaderContainer} onPress={toggleParkSelector} activeOpacity={0.8}>
           <LinearGradient
             colors={['#4facfe', '#ff0080']}
@@ -955,7 +765,7 @@ Answer with clear sections and visual breaks! ✨`;
           </LinearGradient>
         </TouchableOpacity>
 
-        {/* ENHANCED PARK SELECTOR */}
+        {/* COLLAPSIBLE PARK SELECTOR */}
         {parkSelectorVisible && (
           <View style={styles.parkSelectorContainer}>
             <ScrollView 
@@ -1001,7 +811,7 @@ Answer with clear sections and visual breaks! ✨`;
           </View>
         )}
 
-        {/* ENHANCED CHAT MESSAGES */}
+        {/* MAGICAL CHAT MESSAGES */}
         <ScrollView
           ref={scrollViewRef}
           style={styles.messagesContainer}
@@ -1067,15 +877,8 @@ Answer with clear sections and visual breaks! ✨`;
             </View>
           ))}
           
-          {/* FIXED: SMALL DISCRETE LOADING DOTS */}
           {isLoading && (
             <View style={[styles.messageContainer, styles.aiMessage]}>
-              <View style={styles.aiMessageHeader}>
-                <View style={styles.aiAvatar}>
-                  <Text style={styles.aiAvatarText}>🧚‍♀️</Text>
-                </View>
-                <Text style={styles.aiName}>Pixie Pal</Text>
-              </View>
               <View style={styles.loadingContainer}>
                 <View style={styles.loadingDots}>
                   <View style={[styles.loadingDot, styles.loadingDot1]} />
@@ -1088,16 +891,8 @@ Answer with clear sections and visual breaks! ✨`;
           )}
         </ScrollView>
 
-        {/* ENHANCED INPUT AREA */}
+        {/* MAGICAL INPUT AREA */}
         <View style={styles.inputContainer}>
-          {/* Voice Input Component */}
-          <VoiceInput 
-            onVoiceResult={handleVoiceResult}
-            isLoading={isLoading}
-            disabled={isLoading}
-          />
-          
-          {/* Text Input */}
           <View style={styles.inputWrapper}>
             <TextInput
               style={styles.textInput}
@@ -1108,15 +903,11 @@ Answer with clear sections and visual breaks! ✨`;
               multiline
               onSubmitEditing={() => sendMessage()}
               returnKeyType="send"
-              accessibilityLabel="Type your Disney question"
-              accessibilityHint="Ask about wait times, shows, or character meets"
             />
             <TouchableOpacity
               style={styles.sendButton}
               onPress={() => sendMessage()}
               disabled={!inputText.trim() || isLoading}
-              accessibilityLabel="Send message"
-              accessibilityHint="Send your question to Pixie Pal"
             >
               <LinearGradient
                 colors={!inputText.trim() || isLoading ? ['#ccc', '#ccc'] : ['#4facfe', '#ff0080']}
@@ -1134,7 +925,6 @@ Answer with clear sections and visual breaks! ✨`;
   );
 }
 
-// ENHANCED STYLES - FIXED LOADING DOTS
 const styles = StyleSheet.create({
   safeContainer: {
     flex: 1,
@@ -1145,16 +935,16 @@ const styles = StyleSheet.create({
     backgroundColor: '#F8F5FF',
   },
   
-  // ENHANCED HEADER STYLES
+  // FIXED HEADER STYLES
   magicalHeaderContainer: {
-    elevation: 8,
+    elevation: 5,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
     shadowRadius: 8,
   },
   magicalHeader: {
-    paddingVertical: 16,
+    paddingVertical: 15,
     paddingHorizontal: 20,
   },
   headerContent: {
@@ -1175,10 +965,10 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginRight: 12,
     transform: [{ rotate: '12deg' }],
-    elevation: 4,
+    elevation: 3,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.25,
+    shadowOpacity: 0.2,
     shadowRadius: 4,
   },
   pixieIconText: {
@@ -1186,13 +976,12 @@ const styles = StyleSheet.create({
   },
   headerTitle: {
     color: '#fff',
-    fontSize: 22,
+    fontSize: 20,
     fontWeight: 'bold',
-    letterSpacing: 0.5,
   },
   headerSubtitle: {
     color: '#E1C4F7',
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: '600',
   },
   headerRight: {
@@ -1208,10 +997,10 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
 
-  // ENHANCED PARK SELECTOR
+  // PARK SELECTOR STYLES
   parkSelectorContainer: {
-    backgroundColor: 'rgba(255, 255, 255, 0.98)',
-    paddingVertical: 10,
+    backgroundColor: 'rgba(255, 255, 255, 0.95)',
+    paddingVertical: 8,
     borderBottomWidth: 1,
     borderBottomColor: 'rgba(79, 172, 254, 0.2)',
   },
@@ -1221,24 +1010,24 @@ const styles = StyleSheet.create({
   parkButton: {
     marginRight: 12,
     borderRadius: 20,
-    elevation: 3,
+    elevation: 2,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.15,
-    shadowRadius: 3,
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 2,
     minWidth: 80,
     overflow: 'hidden',
   },
   activeParkGradient: {
     paddingHorizontal: 16,
-    paddingVertical: 10,
+    paddingVertical: 8,
     alignItems: 'center',
     borderRadius: 20,
   },
   inactiveParkButton: {
     backgroundColor: '#fff',
     paddingHorizontal: 16,
-    paddingVertical: 10,
+    paddingVertical: 8,
     alignItems: 'center',
     borderRadius: 20,
     borderWidth: 1,
@@ -1263,17 +1052,17 @@ const styles = StyleSheet.create({
     lineHeight: 12,
   },
 
-  // ENHANCED MESSAGE STYLES
+  // MESSAGE STYLES
   messagesContainer: {
     flex: 1,
     backgroundColor: '#F8F5FF',
   },
   messagesContent: {
-    padding: 16,
+    padding: 15,
     paddingBottom: 20,
   },
   messageWrapper: {
-    marginVertical: 10,
+    marginVertical: 8,
   },
   messageContainer: {
     maxWidth: '85%',
@@ -1287,39 +1076,38 @@ const styles = StyleSheet.create({
   aiMessageHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 8,
+    marginBottom: 6,
   },
   aiAvatar: {
-    width: 30,
-    height: 30,
+    width: 28,
+    height: 28,
     backgroundColor: '#4facfe',
-    borderRadius: 15,
+    borderRadius: 14,
     justifyContent: 'center',
     alignItems: 'center',
-    marginRight: 8,
-    elevation: 3,
+    marginRight: 6,
+    elevation: 2,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
+    shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.2,
-    shadowRadius: 3,
+    shadowRadius: 2,
   },
   aiAvatarText: {
-    fontSize: 14,
+    fontSize: 12,
   },
   aiName: {
-    fontSize: 13,
+    fontSize: 12,
     fontWeight: 'bold',
     color: '#4facfe',
-    letterSpacing: 0.3,
   },
   messageBubble: {
     borderRadius: 20,
     position: 'relative',
-    elevation: 3,
+    elevation: 2,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.15,
-    shadowRadius: 4,
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 3,
     overflow: 'hidden',
   },
   userBubble: {
@@ -1329,10 +1117,10 @@ const styles = StyleSheet.create({
     backgroundColor: '#fff',
     borderWidth: 2,
     borderColor: '#A7EFFF',
-    padding: 14,
+    padding: 12,
   },
   userMessageGradient: {
-    padding: 14,
+    padding: 12,
   },
   magicCorner: {
     position: 'absolute',
@@ -1352,83 +1140,74 @@ const styles = StyleSheet.create({
     fontSize: 10,
   },
   messageText: {
-    fontSize: 15,
-    lineHeight: 22,
+    fontSize: 14,
+    lineHeight: 20,
     fontWeight: '600',
   },
   userMessageText: {
     color: '#fff',
-    fontSize: 15,
-    lineHeight: 22,
+    fontSize: 14,
+    lineHeight: 20,
     fontWeight: '600',
   },
   aiMessageText: {
     color: '#333',
-    fontSize: 15,
-    lineHeight: 22,
-    fontWeight: '500',
-  },
-  boldText: {
-    fontWeight: 'bold',
-    color: '#2C3E50',
+    fontSize: 14,
+    lineHeight: 20,
+    fontWeight: '600',
   },
   messageTime: {
-    fontSize: 11,
+    fontSize: 10,
     marginTop: 8,
     opacity: 0.7,
     fontWeight: '500',
   },
 
-  // ENHANCED FEEDBACK STYLES
+  // FEEDBACK STYLES
   feedbackContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginTop: 8,
-    paddingLeft: 8,
+    marginTop: 6,
+    paddingLeft: 6,
   },
   feedbackButton: {
-    marginHorizontal: 4,
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 12,
-    backgroundColor: 'rgba(79, 172, 254, 0.15)',
-    minWidth: 32,
-    minHeight: 32,
-    justifyContent: 'center',
-    alignItems: 'center',
+    marginHorizontal: 3,
+    paddingHorizontal: 6,
+    paddingVertical: 3,
+    borderRadius: 10,
+    backgroundColor: 'rgba(79, 172, 254, 0.1)',
   },
   feedbackButtonText: {
-    fontSize: 16,
+    fontSize: 14,
   },
   feedbackCompleted: {
-    marginTop: 8,
-    paddingLeft: 8,
+    marginTop: 6,
+    paddingLeft: 6,
   },
   feedbackCompletedText: {
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: 'bold',
     color: '#4facfe',
   },
 
-  // FIXED: SMALL LOADING DOTS (NO BIG DOTS)
+  // LOADING STYLES
   loadingContainer: {
     flexDirection: 'row',
     alignItems: 'center',
     padding: 16,
     backgroundColor: '#fff',
-    borderRadius: 20,
+    borderRadius: 25,
     borderWidth: 2,
     borderColor: '#A7EFFF',
-    marginTop: 8,
   },
   loadingDots: {
     flexDirection: 'row',
     marginRight: 12,
   },
   loadingDot: {
-    width: 4,      // FIXED: Much smaller dots
-    height: 4,     // FIXED: Much smaller dots
-    borderRadius: 2,
+    width: 8,
+    height: 8,
+    borderRadius: 4,
     backgroundColor: '#4facfe',
     marginHorizontal: 2,
   },
@@ -1445,15 +1224,14 @@ const styles = StyleSheet.create({
     color: '#4facfe',
     fontStyle: 'italic',
     fontWeight: '600',
-    fontSize: 14,
   },
 
-  // ENHANCED INPUT STYLES
+  // INPUT STYLES
   inputContainer: {
-    backgroundColor: 'rgba(255, 255, 255, 0.98)',
+    backgroundColor: 'rgba(255, 255, 255, 0.95)',
     paddingHorizontal: 12,
-    paddingTop: 14,
-    paddingBottom: 10,
+    paddingTop: 12,
+    paddingBottom: 8,
     borderTopWidth: 3,
     borderTopColor: '#4facfe',
   },
@@ -1465,25 +1243,24 @@ const styles = StyleSheet.create({
     flex: 1,
     borderWidth: 2,
     borderColor: '#A7EFFF',
-    borderRadius: 22,
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    marginRight: 12,
+    borderRadius: 20,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    marginRight: 10,
     maxHeight: 100,
     fontSize: 16,
     backgroundColor: '#F9F9F9',
-    fontWeight: '500',
+    fontWeight: '600',
     color: '#333',
-    lineHeight: 20,
   },
   sendButton: {
-    width: 46,
-    height: 46,
-    borderRadius: 23,
-    elevation: 4,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    elevation: 3,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.25,
+    shadowOpacity: 0.2,
     shadowRadius: 4,
     borderWidth: 3,
     borderColor: '#fff',
@@ -1494,9 +1271,9 @@ const styles = StyleSheet.create({
     height: '100%',
     justifyContent: 'center',
     alignItems: 'center',
-    borderRadius: 23,
+    borderRadius: 22,
   },
   sendButtonText: {
-    fontSize: 20,
+    fontSize: 18,
   },
 });
